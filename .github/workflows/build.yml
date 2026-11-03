@@ -839,8 +839,36 @@ jobs:
             exit 1
           fi
           echo "OK: 已改用 track_throne(false)，与 main 分支语义一致"
+      # ------------------ 3. KSU_SUSFS_PRIORITY_UID_FILTER 的 Kconfig 声明 ------------------
+      # 背景：SukiSU builtin 的 manager/pkg_observer.c 与 supercall/dispatch.c 无条件调用
+      #   susfs_parse_priority_app_strings() / susfs_set_priority_uid_filter()，
+      # 而最新 SUSFS 只在 CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER 下声明这两个符号。
+      # 该 Kconfig 项由 SUSFS 的 10_enable_susfs_for_ksu.patch 引入，但 SukiSU 变体不应用该补丁，
+      # 于是原型缺失 → 编译期 implicit-function-declaration；同时 fs/susfs.c 里的 static
+      # 辅助函数因特性未启用被判为 unused-function（-Werror）。
+      # 故把该 Kconfig 项补进 builtin 的 Kconfig，配合「添加 SUSFS 配置」写入 =y。
+      - name: 补齐 KSU_SUSFS_PRIORITY_UID_FILTER 的 Kconfig 声明
+        if: ${{ !inputs.clean_build && inputs.enable_susfs }}
+        working-directory: ${{ env.KERNEL_ROOT }}
+        run: |
+          set -euo pipefail
+          if [ "${KSU_BUILTIN_SUSFS:-false}" != "true" ]; then
+            echo "非 SukiSU builtin（内置 SUSFS）场景，跳过本步"
+            exit 0
+          fi
+          K="KernelSU/kernel/Kconfig"
+          if [ ! -f "$K" ]; then
+            echo "::warning::未找到 $K，跳过"
+            exit 0
+          fi
+          if grep -q "^config KSU_SUSFS_PRIORITY_UID_FILTER" "$K"; then
+            echo "Kconfig 已声明 KSU_SUSFS_PRIORITY_UID_FILTER，跳过"
+            exit 0
+          fi
+          printf '\nconfig KSU_SUSFS_PRIORITY_UID_FILTER\n\tbool "Enable to allow adding user-defined uids that will be hidden from getpriority/setpriority/ioprio_get/ioprio_set syscall"\n\tdepends on KSU_SUSFS\n\tdefault y\n\thelp\n\t  - Allow hiding user-defined uids from syscalls like getpriority/setpriority/ioprio_get/ioprio_set.\n\t  - Effective on all processes with uid >= 10000.\n' >> "$K"
+          echo "OK: 已补齐 KSU_SUSFS_PRIORITY_UID_FILTER 的 Kconfig 声明"
 
-      # ------------------ 3. selinux_hide.c 的外部 _fn 符号引用 ------------------
+      # ------------------ 4. selinux_hide.c 的外部 _fn 符号引用 ------------------
       # 背景：SukiSU 的 selinux_hide.c 对 >=6.6 内核声明并使用了两个外部符号
       #   security_dump_masked_av_fn / context_struct_compute_av_fn
       # 其提供者是 SUSFS 为 Official KSU 准备的 10_enable_susfs_for_ksu.patch，
@@ -1688,6 +1716,7 @@ jobs:
           CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           CONFIG_KSU_SUSFS_SUS_MAP=y
+          CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y
           EOF
 
           # 把本步实际追加的行导出为配置片段，随 SUSFS 集成补丁一起分发
