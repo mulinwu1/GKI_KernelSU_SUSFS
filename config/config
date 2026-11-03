@@ -43,7 +43,10 @@ custom=true
 #   故 SUSFS 与 SukiSU 必须同代；补丁上下文问题改由 apply.sh 的 .rej 兜底处理。
 gki-android12-5.10=31eb14add587b0a089dfe1819f92cc94920e141e
 gki-android13-5.15=a2dff232d075e033d43999a71deddaaa261aaf2e
-gki-android14-6.1=4afc5fb393634bd515b3d27a6ec5921f15aaeb54
+# 2026-11-03：SukiSU builtin HEAD 已提供 ksu_setup_preinit_file /
+#   ksu_preinit_handle_post_execveat，原先“最新 SUSFS 需要新 KSU API”的钉版理由失效，
+#   故 6.1 放开、跟随 SUSFS 最新提交（其余分支维持原钉版）。
+gki-android14-6.1=
 gki-android15-6.6=ebf876ee4ec4761989b30bc9d545d8e2b85c2270
 gki-android16-6.12=
 
