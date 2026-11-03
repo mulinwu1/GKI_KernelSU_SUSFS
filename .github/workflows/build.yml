@@ -1701,6 +1701,46 @@ jobs:
 
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
+      # ------------------ kallsyms 布局兼容 KernelPatch ------------------
+      # 背景：ACK 6.1.138 回迁了 kallsyms_seqs_of_names（每符号 3 字节），
+      # 位置正好夹在 kallsyms_markers 与 kallsyms_token_table 之间。
+      # KernelPatch 的 patch_linux 依靠「markers 紧邻 token_table」的启发式定位 kallsyms，
+      # 被这张表污染后报 `kallsyms_markers elem_size 4 rejected ...` 并拒绝产出 oImage。
+      # 表顺序对内核运行时无影响（各表按符号名引用），故把 seqs 输出移到 token_index 之后，
+      # 恢复 markers → token_table 紧邻布局。仅在会注入 KernelPatch 宿主时执行。
+      - name: 调整 kallsyms_seqs_of_names 布局（KPM 兼容）
+        if: ${{ inputs.ksu_mode != '禁用KSU' && (startsWith(inputs.use_kpm, 'enabled') || startsWith(inputs.use_kpm, 'patched')) && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'BakaSU' || inputs.ksu_variant == 'Next') }}
+        working-directory: ${{ env.KERNEL_ROOT }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys
+          p = "common/scripts/kallsyms.c"
+          s = open(p, encoding="utf-8").read()
+
+          t_idx = s.find('\toutput_label("kallsyms_token_index");')
+          t_seq = s.find('\toutput_label("kallsyms_seqs_of_names");')
+          if t_idx == -1 or t_seq == -1:
+              print("未找到 token_index/seqs 输出点，跳过（内核布局无需调整）")
+              sys.exit(0)
+          if t_seq > t_idx:
+              print("seqs 已在 token_index 之后，无需调整")
+              sys.exit(0)
+
+          start = s.index('\tsort_symbols_by_name();')
+          end = s.index('\toutput_label("kallsyms_token_table");')
+          block = s[start:end]
+          s = s[:start] + s[end:]
+
+          anchor = '\tprintf("\\n");\n}\n\n\n/* table lookup compression functions */'
+          if anchor not in s:
+              print("::error::未找到 write_src 结尾锚点，无法调整 seqs 布局")
+              sys.exit(1)
+          s = s.replace(anchor, '\tprintf("\\n");\n\n' + block + '}\n\n\n/* table lookup compression functions */', 1)
+          open(p, "w", encoding="utf-8").write(s)
+          print("OK: 已把 kallsyms_seqs_of_names 移到 token_index 之后")
+          PY
+
       - name: 添加 SUSFS 配置
         if: inputs.enable_susfs
         run: |
