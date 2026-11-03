@@ -851,6 +851,7 @@ jobs:
       #   1) 删除两个 extern 声明
       #   2) dump_masked_av 的调用（仅审计日志用途）整段删除
       #   3) compute_av 的 if/else 简化为直接调用 static 实现
+      # 2026-11 补充：上游已改为 static 函数指针（= NULL）形态，本步自动判定跳过。
       - name: 消除 selinux_hide.c 对外部 _fn 符号的引用
         if: ${{ !inputs.clean_build && inputs.enable_susfs }}
         working-directory: ${{ env.KERNEL_ROOT }}
@@ -864,6 +865,13 @@ jobs:
 
           if [ ! -f "$F" ]; then
             echo "::warning::未找到 $F，跳过"
+            exit 0
+          fi
+          # 2026-11：上游 SukiSU builtin 已改为文件内 static 函数指针形态
+          #   static void (*security_dump_masked_av_fn)(...) = NULL;
+          # 既不产生外部符号、也不会在链接期解析，无需修补，直接跳过。
+          if grep -qE "^[[:space:]]*static[^;]*_av_fn" "$F"; then
+            echo "上游已改为 static 函数指针（_av_fn），不存在外部符号，跳过本步"
             exit 0
           fi
           if ! grep -q "_av_fn" "$F"; then
@@ -914,8 +922,8 @@ jobs:
 
           echo "--- 处理后 ---"
           grep -n "context_struct_compute_av(" "$F" || true
-          if grep -q "_av_fn" "$F"; then
-            echo "::error::仍存在外部 _fn 引用，链接期会失败"
+          if grep -qE "extern[^;]*_av_fn" "$F"; then
+            echo "::error::仍存在 extern _fn 引用，链接期会失败"
             exit 1
           fi
           echo "OK: 已消除外部符号引用，仅使用文件内自带的 static 实现"
