@@ -2008,7 +2008,23 @@ jobs:
         run: |
           set -euo pipefail
 
+          # KPM 工具优先使用 SukiSU_KernelPatch_patch 最新 release；
+          # 仓库内置的 patch_linux/kpimg 较旧，与 builtin 的 KPM bridge ABI 不匹配时会导致开卡第一屏。
+          KP_TAG="0.14.0"
+          KP_BASE="https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/${KP_TAG}"
+          KPM_TOOLS_DIR="$GITHUB_WORKSPACE/kpm-tools"
+          mkdir -p "$KPM_TOOLS_DIR"
           PATCH_BIN="${SUKISU_PATCHES}/kpm/patch_linux"
+          KPIMG_SRC="$(dirname "$PATCH_BIN")/kpimg"
+          if curl -fsSL --retry 3 -m 120 "$KP_BASE/patch_linux" -o "$KPM_TOOLS_DIR/patch_linux" \
+             && curl -fsSL --retry 3 -m 120 "$KP_BASE/kpimg" -o "$KPM_TOOLS_DIR/kpimg"; then
+            chmod +x "$KPM_TOOLS_DIR/patch_linux"
+            PATCH_BIN="$KPM_TOOLS_DIR/patch_linux"
+            KPIMG_SRC="$KPM_TOOLS_DIR/kpimg"
+            echo "KPM 工具: 使用 ${KP_TAG} 版 patch_linux + kpimg"
+          else
+            echo "::warning::下载 ${KP_TAG} 版 KPM 工具失败，回退到仓库内置版本"
+          fi
           if [ ! -f "$PATCH_BIN" ]; then
             echo "::error::未找到 KPM 补丁程序: $PATCH_BIN"
             exit 1
@@ -2031,9 +2047,12 @@ jobs:
           echo "KPM 目标目录: $TARGET_PATH"
 
           cd "$TARGET_PATH"
-          rm -rf ./patch
+          rm -rf ./patch ./kpimg
           cp -f "$PATCH_BIN" ./patch
           chmod 777 ./patch
+          if [ -f "$KPIMG_SRC" ]; then
+            cp -f "$KPIMG_SRC" ./kpimg
+          fi
           ./patch
 
           if [ ! -f oImage ]; then
